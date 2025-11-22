@@ -119,20 +119,20 @@ def main():
 
     warm_stages = [
         {
-            "height": 1,
+
             "width": 6,
             "vision_radius": 1,
             "audio_radius": 0,
             "max_steps": max(10, args.warm_max_steps // 2),
-            "description": "1D corridor",
+            "description": "narrow corridor with a single walkable lane",
         },
         {
-            "height": 3,
-            "width": 6,
+            "height": 4,
+            "width": 8,
             "vision_radius": 1,
             "audio_radius": 1,
             "max_steps": args.warm_max_steps,
-            "description": "strip with a second dimension",
+            "description": "wider strip adding a bit of maneuvering room",
         },
         {
             "height": 6,

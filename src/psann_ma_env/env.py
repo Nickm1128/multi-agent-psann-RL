@@ -63,6 +63,7 @@ class MultiAgentGridEnv:
 
     def reset(self) -> Dict[str, Dict]:
         self.world = GridWorld(height=self.config.height, width=self.config.width)
+        self._validate_bounds()
         self.step_count = 0
         self._populate_world()
         return self._build_observations()
@@ -191,6 +192,15 @@ class MultiAgentGridEnv:
             c = self.rng.integers(1, self.world.width - 1)
             if self.world.terrain[r, c] == TerrainType.FLOOR and not self.world.is_occupied(int(r), int(c)):
                 return int(r), int(c)
+
+    def _validate_bounds(self) -> None:
+        """Ensure the grid has room for a walkable interior cell."""
+        if self.world is None:
+            return
+        if self.world.height < 3 or self.world.width < 3:
+            raise ValueError(
+                "Environment height and width must be at least 3 to leave interior floor cells"
+            )
 
     # Observation helpers -------------------------------------------------
     def _rotation_k(self, orientation: Orientation) -> int:
