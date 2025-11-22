@@ -119,7 +119,7 @@ def main():
 
     warm_stages = [
         {
-            "height": 3,
+
             "width": 6,
             "vision_radius": 1,
             "audio_radius": 0,
