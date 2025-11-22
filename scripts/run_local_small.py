@@ -88,6 +88,9 @@ def main():
             "kind": "lsmconv2dexpander",
             "out_channels": 64,
         },
+        lsm_train=True,
+        lsm_pretrain_epochs=1,
+        lsm_lr=5e-4,
         batch_size=8,
         epochs=1,
         lr=5e-4,
@@ -97,18 +100,13 @@ def main():
 
     save_path = Path(args.save_animation).resolve()
 
-    # Warm-start on a simple single-agent navigation task, and report parameter count.
-    warm_cfg = deepcopy(preset.env_config)
-    warm_cfg.height = 6
-    warm_cfg.width = 6
-    warm_cfg.num_agents = 1
-    warm_cfg.noise_vocab_size = 0
-    warm_cfg.vision_radius = 2
-    warm_cfg.audio_radius = 1
-    warm_cfg.max_steps = args.warm_max_steps
-    warm_env = MultiAgentGridEnv(config=warm_cfg)
+    # Warm-start on progressively more complex single-agent environments.
+    warm_base_cfg = deepcopy(preset.env_config)
+    warm_base_cfg.num_agents = 1
+    warm_base_cfg.noise_vocab_size = 0
 
     # Initialise model by a tiny fit to count parameters.
+    warm_env = MultiAgentGridEnv(config=warm_base_cfg)
     warm_obs = warm_env.reset()
     warm_enc = encode_obs_to_tensor(next(iter(warm_obs.values())))
     dummy_batch = np.stack([warm_enc, warm_enc], axis=0)
@@ -118,27 +116,68 @@ def main():
     print(f"Trainable parameters: {n_params}")
 
     warm_target_model = deepcopy(q_model)
-    warm_buffer = ReplayBuffer(capacity=500)
-    warm_trainer = MultiAgentDQNTrainer(
-        env=warm_env,
-        q_model=q_model,
-        target_model=warm_target_model,
-        buffer=warm_buffer,
-        batch_size=8,
-        epsilon_start=0.8,
-        epsilon_end=0.2,
-        epsilon_decay=200,
-        target_update_every=50,
-    )
-    print(f"Warm start on {warm_cfg.height}x{warm_cfg.width} single-agent env for {args.warm_episodes} episodes.")
-    train_stage(
-        trainer=warm_trainer,
-        env=warm_env,
-        episodes=args.warm_episodes,
-        max_steps=args.warm_max_steps,
-    )
-    q_model = warm_trainer.q_model
-    target_model = warm_trainer.target_model
+
+    warm_stages = [
+        {
+            "height": 1,
+            "width": 6,
+            "vision_radius": 1,
+            "audio_radius": 0,
+            "max_steps": max(10, args.warm_max_steps // 2),
+            "description": "1D corridor",
+        },
+        {
+            "height": 3,
+            "width": 6,
+            "vision_radius": 1,
+            "audio_radius": 1,
+            "max_steps": args.warm_max_steps,
+            "description": "strip with a second dimension",
+        },
+        {
+            "height": 6,
+            "width": 6,
+            "vision_radius": 2,
+            "audio_radius": 1,
+            "max_steps": args.warm_max_steps,
+            "description": "square starter arena",
+        },
+    ]
+
+    for idx, warm_stage in enumerate(warm_stages):
+        warm_cfg = deepcopy(warm_base_cfg)
+        warm_cfg.height = warm_stage["height"]
+        warm_cfg.width = warm_stage["width"]
+        warm_cfg.vision_radius = warm_stage["vision_radius"]
+        warm_cfg.audio_radius = warm_stage["audio_radius"]
+        warm_cfg.max_steps = warm_stage["max_steps"]
+
+        warm_env = MultiAgentGridEnv(config=warm_cfg)
+        warm_buffer = ReplayBuffer(capacity=500)
+        warm_trainer = MultiAgentDQNTrainer(
+            env=warm_env,
+            q_model=q_model,
+            target_model=warm_target_model,
+            buffer=warm_buffer,
+            batch_size=8,
+            epsilon_start=0.8,
+            epsilon_end=0.2,
+            epsilon_decay=200 + idx * 50,
+            target_update_every=50,
+        )
+        print(
+            f"Warm start stage {idx+1}/{len(warm_stages)} ({warm_stage['description']}) "
+            f"on {warm_cfg.height}x{warm_cfg.width} for {args.warm_episodes} episodes."
+        )
+        train_stage(
+            trainer=warm_trainer,
+            env=warm_env,
+            episodes=args.warm_episodes,
+            max_steps=warm_stage["max_steps"],
+        )
+        q_model = warm_trainer.q_model
+        warm_target_model = warm_trainer.target_model
+    target_model = warm_target_model
 
     for idx, stage in enumerate(stages):
         env_config = deepcopy(preset.env_config)
